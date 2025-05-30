@@ -1,0 +1,1302 @@
+#!/bin/bash
+
+# كشف لغة النظام
+LANG_CODE="${LANG:0:2}"
+[[ "$LANG_CODE" != "ar" ]] && LANG_CODE="en"
+
+
+#الإعتماديات المطلوبة
+if ! command -v jq &>/dev/null; then
+    echo "❌ الأمر 'jq' غير متوفر. الرجاء تثبيته."
+    exit 1
+fi
+
+# عرض البداية
+clear
+print_logo
+print_intro
+echo ""
+
+# إعداد المسارات والمتغيرات
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="$SCRIPT_DIR/data"
+CACHE_DIR="$SCRIPT_DIR/cache"
+CONFIG_FILE="$SCRIPT_DIR/config.conf"
+LANG_FILE="$SCRIPT_DIR/lang.conf"
+
+# إنشاء المجلدات المطلوبة
+mkdir -p "$DATA_DIR" "$CACHE_DIR"
+
+# ملفات البيانات
+QURAN_FILE="$DATA_DIR/quran.json"
+AZKAR_FILE="$DATA_DIR/azkar.json"
+
+# ملفات الخبيئة
+PRAYER_CACHE="$CACHE_DIR/prayer_times.json"
+LOCATION_CACHE="$CACHE_DIR/location.json"
+
+# الإعدادات الافتراضية
+DEFAULT_CITY=""
+DEFAULT_COUNTRY=""
+PLAYER="mpv"
+LANG="ar"
+
+# ألوان للواجهة
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# ==============================================
+# دوال الإعدادات والتحميل
+# ==============================================
+
+load_language() {
+    if [[ -f "$LANG_FILE" ]]; then
+        source "$LANG_FILE"
+    fi
+}
+
+load_config() {
+    load_language
+    if [[ -f "$CONFIG_FILE" ]]; then
+        source "$CONFIG_FILE"
+    fi
+}
+
+save_config() {
+    cat > "$CONFIG_FILE" << EOF
+DEFAULT_CITY="$DEFAULT_CITY"
+DEFAULT_COUNTRY="$DEFAULT_COUNTRY"
+PLAYER="$PLAYER"
+EOF
+}
+
+# ==============================================
+# نظام الترجمة
+# ==============================================
+
+t() {
+    local key="$1"
+    shift
+    local args=("$@")
+
+    case "$LANG" in
+        "ar")
+            case "$key" in
+
+                "menu_title") echo "
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@B#@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@G?~^?B@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@G?~~~^:^?G@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@BPPPPPPPP57~!!7YY!^:^7PGPPPPPPPB@@@@@@@@@
+@@@@@@@@@J~~~~~~~~~!!7JYY55Y7~^^^^^^^^^:?@@@@@@@@@
+@@@@@@@@@Y777J??????JJJJ?JJY5Y??????J!^^J@@@@@@@@@
+@@@@@@@@@5?7?YJJJJJYYJJ??7777JJJJJJYP?^^J@@@@@@@@@
+@@@@@@@@@Y?7?JJJJYYJ7!!~!!7JJJJ????J5?^^?@@@@@@@@@
+@@@@@@@BJ7?7?YY55J!~~~!7?Y5YJJ?????J5J^^^?B@@@@@@@
+@@@@@B?!!77JY5PP?!~~!77?55YYYJ^~JJJJY5J!^:^?B@@@@@
+@@@G?!!7?JJYYPGJ77!!!!75P5J77~^:~!!?JY55J!^:^7B@@@
+@@@GJJJ?JJJJ5GGJ??!~~~7PPPP57!!~~7JYJJ?J5Y!!~!P@@@
+@@@@@BPYJ?JY5GGYJY7^^^^YPPP5!?YJ!!YJJJJJ?77JG@@@@@
+@@@@@@@BP5YJ5PBGYYY!:::^755YJYYYJ??JJY?7?JG@@@@@@@
+@@@@@@@@@P5YJPPBGP5Y7^:..^!?JJJ?????5?7!J@@@@@@@@@
+@@@@@@@@@PYYJYY5PGGP5YJ7~^^^~!!7???J5?7!Y@@@@@@@@@
+@@@@@@@@@PYY?JJJJY5PPPPPP55YYYJJJJJJ5?7!Y@@@@@@@@@
+@@@@@@@@@PYYJJJJJYYYJYYYYYY55YYJJJJJJ??!Y@@@@@@@@@
+@@@@@@@@@BPGGGGGBBBG5Y???JJJJJ5GGGGGGGP5G@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@&BP5YJJJJYG&@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@&BPYJYG&@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@BB@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+  🕌 GT-MuslimApp by GNUTUX 🕌
+🕌 برنامج المسلم للذكر والصلاة" ;;
+                "menu_options") echo "1. قراءة القرآن الكريم
+2. 🔊 تشغيل التلاوة
+3. 📿 عرض الأذكار
+4. 🕋 أوقات الصلاة
+5. 🌍 معلومات الموقع
+6. 🗓️ التاريخ الهجري
+7. 🔍 البحث في القرآن
+8. 📊 إحصائيات السور
+9. ⚙️ الإعدادات
+0. خروج" ;;
+                "choose_option") echo "اختر خيارًا: " ;;
+                "invalid") echo "❌ خيار غير صحيح!" ;;
+                "goodbye") echo "🤲 بارك الله فيك وإلى اللقاء" ;;
+                "bismillah") echo "﷽" ;;
+                "enter_sura") echo "أدخل رقم السورة (1-114): " ;;
+                "enter_verse") echo "أدخل رقم الآية: " ;;
+                "choose_verses") echo "اختر نوع القراءة:
+1. السورة كاملة
+2. آية محددة
+3. من آية إلى آية" ;;
+                "verse_range") echo "أدخل رقم الآية الأولى: " ;;
+                "verse_range_end") echo "أدخل رقم الآية الأخيرة: " ;;
+                "loading") echo "⏳ جارٍ التحميل..." ;;
+                "page_info") echo "📄 الصفحة: ${args[0]} | الجزء: ${args[1]}" ;;
+                "no_data") echo "❌ ملف البيانات غير موجود: ${args[0]}" ;;
+                "recitation_list") echo "🎙️ اختر القارئ:" ;;
+                "choose_reciter") echo "اختر رقم القارئ: " ;;
+                "playing") echo "▶️ جارٍ التشغيل..." ;;
+                "search_term") echo "أدخل كلمة البحث: " ;;
+                "no_results") echo "❌ لم يتم العثور على نتائج" ;;
+                "results_found") echo "✅ تم العثور على ${args[0]} نتيجة:" ;;
+                "settings_menu") echo "⚙️ الإعدادات:
+1. تغيير اللغة
+2. تعيين الموقع
+3. طريقة حساب أوقات الصلاة
+4. تغيير مشغل الصوت
+5. مسح الخبيئة
+0. رجوع" ;;
+                "select_lang") echo "اختر اللغة (ar/en): " ;;
+                "enter_city") echo "أدخل اسم المدينة: " ;;
+                "enter_country") echo "أدخل اسم البلد: " ;;
+                "enter_method") echo "أدخل طريقة الحساب: " ;;
+                "enter_player") echo "أدخل اسم مشغل الصوت (mpv, vlc, mplayer): " ;;
+                "saved") echo "✅ تم الحفظ بنجاح" ;;
+                "cache_cleared") echo "✅ تم مسح الخبيئة بنجاح" ;;
+                "statistics") echo "📊 إحصائيات السور:" ;;
+                "press_enter") echo "اضغط Enter للمتابعة..." ;;
+                "play_mode_menu") echo "🔄 اختر طريقة التشغيل:" ;;
+                "listen_only") echo "🔊 الاستماع فقط" ;;
+                "read_only") echo "📖 القراءة فقط" ;;
+                "read_listen") echo "📖🔊 القراءة والاستماع معاً" ;;
+                "choose_method") echo "اختر طريقة حساب أوقات الصلاة" ;;
+"location_not_set") echo "لم يتم تعيين الموقع بعد" ;;
+"enter_city_country") echo "يجب إدخال المدينة والبلد" ;;
+"prayer_times_from_cache") echo "أوقات الصلاة (من الخبيئة)" ;;
+"method") echo "طريقة الحساب" ;;
+"fajr") echo "الفجر" ;;
+"sunrise") echo "الشروق" ;;
+"dhuhr") echo "الظهر" ;;
+"asr") echo "العصر" ;;
+"maghrib") echo "المغرب" ;;
+"isha") echo "العشاء" ;;
+"cache_corrupted") echo "بيانات الخبيئة تالفة، سيتم جلب بيانات جديدة" ;;
+"fetching_prayer_times") echo "جارٍ جلب أوقات الصلاة من الإنترنت" ;;
+"no_server_response") echo "لا توجد استجابة من الخادم" ;;
+"check_internet") echo "تحقق من اتصال الإنترنت" ;;
+"invalid_server_response") echo "استجابة غير صحيحة من الخادم" ;;
+"server_error") echo "خطأ من الخادم" ;;
+"message") echo "الرسالة" ;;
+"no_prayer_times") echo "لم يتم العثور على أوقات الصلاة" ;;
+"prayer_times_fetched") echo "تم جلب أوقات الصلاة بنجاح" ;;
+"connecting_to") echo "الاتصال بـ" ;;
+                *) echo "$key" ;;
+            esac
+            ;;
+        "en")
+            case "$key" in
+                "menu_title") echo "
+
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@B#@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@G?~^?B@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@G?~~~^:^?G@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@BPPPPPPPP57~!!7YY!^:^7PGPPPPPPPB@@@@@@@@@
+@@@@@@@@@J~~~~~~~~~!!7JYY55Y7~^^^^^^^^^:?@@@@@@@@@
+@@@@@@@@@Y777J??????JJJJ?JJY5Y??????J!^^J@@@@@@@@@
+@@@@@@@@@5?7?YJJJJJYYJJ??7777JJJJJJYP?^^J@@@@@@@@@
+@@@@@@@@@Y?7?JJJJYYJ7!!~!!7JJJJ????J5?^^?@@@@@@@@@
+@@@@@@@BJ7?7?YY55J!~~~!7?Y5YJJ?????J5J^^^?B@@@@@@@
+@@@@@B?!!77JY5PP?!~~!77?55YYYJ^~JJJJY5J!^:^?B@@@@@
+@@@G?!!7?JJYYPGJ77!!!!75P5J77~^:~!!?JY55J!^:^7B@@@
+@@@GJJJ?JJJJ5GGJ??!~~~7PPPP57!!~~7JYJJ?J5Y!!~!P@@@
+@@@@@BPYJ?JY5GGYJY7^^^^YPPP5!?YJ!!YJJJJJ?77JG@@@@@
+@@@@@@@BP5YJ5PBGYYY!:::^755YJYYYJ??JJY?7?JG@@@@@@@
+@@@@@@@@@P5YJPPBGP5Y7^:..^!?JJJ?????5?7!J@@@@@@@@@
+@@@@@@@@@PYYJYY5PGGP5YJ7~^^^~!!7???J5?7!Y@@@@@@@@@
+@@@@@@@@@PYY?JJJJY5PPPPPP55YYYJJJJJJ5?7!Y@@@@@@@@@
+@@@@@@@@@PYYJJJJJYYYJYYYYYY55YYJJJJJJ??!Y@@@@@@@@@
+@@@@@@@@@BPGGGGGBBBG5Y???JJJJJ5GGGGGGGP5G@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@&BP5YJJJJYG&@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@&BPYJYG&@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@BB@@@@@@@@@@@@@@@@@@@@@@@@
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+
+  🕌 GT-MuslimApp by GNUTUX 🕌
+🕌 Muslim App for Dhikr and Prayer" ;;
+                "menu_options") echo "1. Read Quran
+2. 🔊 Play Recitation
+3. 📿 Show Dhikr
+4. 🕋 Prayer Times
+5. 🌍 Location Info
+6. 🗓️ Hijri Date
+7. 🔍 Search Quran
+8. 📊 Surah Statistics
+9. ⚙️ Settings
+0. Exit" ;;
+                "choose_option") echo "Choose an option: " ;;
+                "invalid") echo "❌ Invalid option!" ;;
+                "goodbye") echo "🤲 May Allah bless you, goodbye" ;;
+                "bismillah") echo "In the name of Allah, the Most Gracious, the Most Merciful" ;;
+                "enter_sura") echo "Enter Surah number (1-114): " ;;
+                "enter_verse") echo "Enter verse number: " ;;
+                "choose_verses") echo "Choose reading type:
+1. Full Surah
+2. Specific verse
+3. Range of verses" ;;
+                "verse_range") echo "Enter first verse number: " ;;
+                "verse_range_end") echo "Enter last verse number: " ;;
+                "loading") echo "⏳ Loading..." ;;
+                "page_info") echo "📄 Page: ${args[0]} | Part: ${args[1]}" ;;
+                "no_data") echo "❌ Data file not found: ${args[0]}" ;;
+                "recitation_list") echo "🎙️ Choose reciter:" ;;
+                "choose_reciter") echo "Choose reciter number: " ;;
+                "playing") echo "▶️ Playing..." ;;
+                "search_term") echo "Enter search term: " ;;
+                "no_results") echo "❌ No results found" ;;
+                "results_found") echo "✅ Found ${args[0]} results:" ;;
+                "settings_menu") echo "⚙️ Settings:
+1. Change language
+2. Set location
+3. Prayer calculation method
+4. Change audio player
+5. Clear cache
+0. Back" ;;
+                "select_lang") echo "Choose language (ar/en): " ;;
+                "enter_city") echo "Enter city name: " ;;
+                "enter_country") echo "Enter country name: " ;;
+                "enter_method") echo "Enter calculation method: " ;;
+                "enter_player") echo "Enter audio player name (mpv, vlc, mplayer): " ;;
+                "saved") echo "✅ Saved successfully" ;;
+                "cache_cleared") echo "✅ Cache cleared successfully" ;;
+                "statistics") echo "📊 Surah Statistics:" ;;
+                "press_enter") echo "Press Enter to continue..." ;;
+                "play_mode_menu") echo "🔄 Select play mode:" ;;
+                "listen_only") echo "🔊 Listen only" ;;
+                "read_only") echo "📖 Read only" ;;
+                "read_listen") echo "📖🔊 Read and listen" ;;
+                "choose_method") echo "Choose prayer times calculation method" ;;
+"location_not_set") echo "Location not set" ;;
+"enter_city_country") echo "Please enter city and country" ;;
+"prayer_times_from_cache") echo "Prayer times (from cache)" ;;
+"method") echo "Calculation method" ;;
+"fajr") echo "Fajr" ;;
+"sunrise") echo "Sunrise" ;;
+"dhuhr") echo "Dhuhr" ;;
+"asr") echo "Asr" ;;
+"maghrib") echo "Maghrib" ;;
+"isha") echo "Isha" ;;
+"cache_corrupted") echo "Cache data corrupted, fetching new data" ;;
+"fetching_prayer_times") echo "Fetching prayer times from internet" ;;
+"no_server_response") echo "No response from server" ;;
+"check_internet") echo "Check internet connection" ;;
+"invalid_server_response") echo "Invalid server response" ;;
+"server_error") echo "Server error" ;;
+"message") echo "Message" ;;
+"no_prayer_times") echo "No prayer times found" ;;
+"prayer_times_fetched") echo "Prayer times fetched successfully" ;;
+"connecting_to") echo "Connecting to" ;;
+                *) echo "$key" ;;
+            esac
+            ;;
+    esac
+}
+
+# ==============================================
+# فحص التبعيات
+# ==============================================
+
+check_dependencies() {
+    local missing_deps=()
+
+    local required_tools=("jq" "curl")
+    for tool in "${required_tools[@]}"; do
+        if ! command -v "$tool" &>/dev/null; then
+            missing_deps+=("$tool")
+        fi
+    done
+
+    local audio_players=("mpv" "vlc" "mplayer" "cvlc")
+    local player_found=false
+    for player in "${audio_players[@]}"; do
+        if command -v "$player" &>/dev/null; then
+            PLAYER="$player"
+            player_found=true
+            break
+        fi
+    done
+
+    if [[ "$player_found" == false ]]; then
+        missing_deps+=("audio player (mpv/vlc/mplayer)")
+    fi
+
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        echo "❌ التبعيات المفقودة:"
+        printf '%s\n' "${missing_deps[@]}"
+        echo ""
+        echo "لتثبيت التبعيات على Ubuntu/Debian:"
+        echo "sudo apt update && sudo apt install jq curl mpv"
+        echo ""
+        echo "لتثبيت التبعيات على CentOS/RHEL:"
+        echo "sudo yum install jq curl mpv"
+        exit 1
+    fi
+}
+
+# ==============================================
+# تحميل بيانات القرآن
+# ==============================================
+
+download_quran_data() {
+    if [[ ! -f "$QURAN_FILE" ]]; then
+        echo "📥 تحميل بيانات القرآن الكريم..."
+
+        cat > "$QURAN_FILE" << 'EOF'
+{
+  "data": {
+    "surahs": [
+      {
+        "number": 1,
+        "name": "الفاتحة",
+        "englishName": "Al-Fatiha",
+        "ayahs": [
+          {"number": 1, "numberInSurah": 1, "text": "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"},
+          {"number": 2, "numberInSurah": 2, "text": "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ"},
+          {"number": 3, "numberInSurah": 3, "text": "الرَّحْمَٰنِ الرَّحِيمِ"},
+          {"number": 4, "numberInSurah": 4, "text": "مَالِكِ يَوْمِ الدِّينِ"},
+          {"number": 5, "numberInSurah": 5, "text": "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ"},
+          {"number": 6, "numberInSurah": 6, "text": "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ"},
+          {"number": 7, "numberInSurah": 7, "text": "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ"}
+        ]
+      },
+      {
+        "number": 2,
+        "name": "البقرة",
+        "englishName": "Al-Baqara",
+        "ayahs": [
+          {"number": 8, "numberInSurah": 1, "text": "الم"},
+          {"number": 9, "numberInSurah": 2, "text": "ذَٰلِكَ الْكِتَابُ لَا رَيْبَ ۛ فِيهِ ۛ هُدًى لِّلْمُتَّقِينَ"},
+          {"number": 10, "numberInSurah": 3, "text": "الَّذِينَ يُؤْمِنُونَ بِالْغَيْبِ وَيُقِيمُونَ الصَّلَاةَ وَمِمَّا رَزَقْنَاهُمْ يُنفِقُونَ"}
+        ]
+      },
+      {
+        "number": 114,
+        "name": "الناس",
+        "englishName": "An-Nas",
+        "ayahs": [
+          {"number": 6236, "numberInSurah": 1, "text": "قُلْ أَعُوذُ بِرَبِّ النَّاسِ"},
+          {"number": 6237, "numberInSurah": 2, "text": "مَلِكِ النَّاسِ"},
+          {"number": 6238, "numberInSurah": 3, "text": "إِلَٰهِ النَّاسِ"},
+          {"number": 6239, "numberInSurah": 4, "text": "مِن شَرِّ الْوَسْوَاسِ الْخَنَّاسِ"},
+          {"number": 6240, "numberInSurah": 5, "text": "الَّذِي يُوَسْوِسُ فِي صُدُورِ النَّاسِ"},
+          {"number": 6241, "numberInSurah": 6, "text": "مِنَ الْجِنَّةِ وَالنَّاسِ"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+        echo "✅ تم إنشاء ملف بيانات تجريبي"
+        echo "💡 لاحقاً يمكنك إضافة المزيد من البيانات"
+        return 0
+    fi
+}
+
+# ==============================================
+# دوال قراءة القرآن
+# ==============================================
+
+read_quran() {
+    if [[ ! -f "$QURAN_FILE" ]]; then
+        if ! download_quran_data; then
+            return 1
+        fi
+    fi
+
+    t enter_sura
+    read sura_num
+
+    if [[ ! "$sura_num" =~ ^[0-9]+$ ]] || [[ $sura_num -lt 1 ]] || [[ $sura_num -gt 114 ]]; then
+        t invalid
+        return 1
+    fi
+
+    local surah_data=$(jq --argjson num "$sura_num" '.data.surahs[] | select(.number == $num)' "$QURAN_FILE" 2>/dev/null)
+
+    if [[ -z "$surah_data" ]]; then
+        echo "❌ السورة غير موجودة في البيانات المتاحة"
+        echo "💡 البيانات الحالية تحتوي على سورة الفاتحة فقط كمثال"
+        return 1
+    fi
+
+    local surah_name=$(echo "$surah_data" | jq -r '.name')
+
+    echo "════════════════════════════════════════"
+    t bismillah
+    echo "════════════════════════════════════════"
+    echo "📖 $surah_name"
+    echo "════════════════════════════════════════"
+
+    t choose_verses
+    read verse_choice
+
+    case $verse_choice in
+        1) read_full_surah "$surah_data" ;;
+        2) read_specific_verse "$sura_num" ;;
+        3) read_verse_range "$surah_data" ;;
+        *) t invalid ;;
+    esac
+}
+
+read_full_surah() {
+    local surah_data="$1"
+
+    echo "$surah_data" | jq -r '.ayahs[] | "﴿ \(.text) ﴾ (\(.numberInSurah))"' | while IFS= read -r verse; do
+        echo "$verse"
+        echo ""
+        sleep 0.5
+    done
+}
+
+read_specific_verse() {
+    local sura_num="$1"
+
+    t enter_verse
+    read verse_num
+
+    if [[ ! "$verse_num" =~ ^[0-9]+$ ]]; then
+        t invalid
+        return 1
+    fi
+
+    local verse_data=$(jq --argjson snum "$sura_num" --argjson vnum "$verse_num" '
+        .data.surahs[] | select(.number == $snum) | .ayahs[] | select(.numberInSurah == $vnum)
+    ' "$QURAN_FILE" 2>/dev/null)
+
+    if [[ -z "$verse_data" ]]; then
+        echo "❌ الآية غير موجودة"
+        return 1
+    fi
+
+    local verse_text=$(echo "$verse_data" | jq -r '.text')
+
+    echo "════════════════════════════════════════"
+    t bismillah
+    echo "════════════════════════════════════════"
+    echo "﴿ $verse_text ﴾"
+    echo "════════════════════════════════════════"
+}
+
+read_verse_range() {
+    local surah_data="$1"
+
+    t verse_range
+    read start_verse
+    t verse_range_end
+    read end_verse
+
+    if [[ ! "$start_verse" =~ ^[0-9]+$ ]] || [[ ! "$end_verse" =~ ^[0-9]+$ ]]; then
+        t invalid
+        return 1
+    fi
+
+    if [[ $start_verse -gt $end_verse ]]; then
+        echo "❌ رقم الآية الأولى يجب أن يكون أقل من الآية الأخيرة"
+        return 1
+    fi
+
+    echo "$surah_data" | jq -r --argjson start "$start_verse" --argjson end "$end_verse" '
+        .ayahs[] | select(.numberInSurah >= $start and .numberInSurah <= $end) |
+        "﴿ \(.text) ﴾ (\(.numberInSurah))"
+    ' | while IFS= read -r verse; do
+        echo "$verse"
+        echo ""
+        sleep 0.5
+    done
+}
+
+# ==============================================
+# تشغيل التلاوة مع القراءة
+# ==============================================
+
+play_recitation() {
+    t enter_sura
+    read sura_num
+
+    if [[ ! "$sura_num" =~ ^[0-9]+$ ]] || [[ $sura_num -lt 1 ]] || [[ $sura_num -gt 114 ]]; then
+        t invalid
+        return 1
+    fi
+
+    local formatted_sura=$(printf "%03d" "$sura_num")
+
+    # قائمة المقرئين محدثة وموثوقة
+    declare -A reciters=(
+        ["عبد الباسط عبد الصمد"]="https://server8.mp3quran.net/basit/$formatted_sura.mp3"
+    ["عبد الرحمن السديس"]="https://server11.mp3quran.net/sds/$formatted_sura.mp3"
+    ["سعد الغامدي"]="https://server5.mp3quran.net/s_gmd/$formatted_sura.mp3"
+
+    # مقرئين إضافيين مع روابط مختبرة
+    ["مشاري راشد العفاسي"]="https://server8.mp3quran.net/afs/$formatted_sura.mp3"
+    ["ماهر المعيقلي"]="https://server12.mp3quran.net/maher/$formatted_sura.mp3"
+    ["أحمد العجمي"]="https://server10.mp3quran.net/ajm/$formatted_sura.mp3"
+    ["محمد صديق المنشاوي"]="https://server10.mp3quran.net/minsh/$formatted_sura.mp3"
+    ["عبد الله بصفر"]="https://server7.mp3quran.net/basfer/$formatted_sura.mp3"
+    ["فارس عباد"]="https://server8.mp3quran.net/frs_a/$formatted_sura.mp3"
+    ["محمد أيوب"]="https://server8.mp3quran.net/ayyub/$formatted_sura.mp3"
+    ["عبد الولي الأركاني"]="https://server11.mp3quran.net/arkani/$formatted_sura.mp3"
+    ["ياسر الدوسري"]="https://server11.mp3quran.net/yasser/$formatted_sura.mp3"
+    ["ناصر القطامي"]="https://server10.mp3quran.net/qatami/$formatted_sura.mp3"
+    ["بندر بليلة"]="https://server12.mp3quran.net/baleela/$formatted_sura.mp3"
+    ["هاني الرفاعي"]="https://server10.mp3quran.net/rifai/$formatted_sura.mp3"
+    ["خالد الجليل"]="https://server11.mp3quran.net/khalid_al_jaleel/$formatted_sura.mp3"
+    ["عبد الله الجهني"]="https://server8.mp3quran.net/jhn/$formatted_sura.mp3"
+    ["محمد المحيسني"]="https://server12.mp3quran.net/mohsen/$formatted_sura.mp3"
+    ["توفيق الصايغ"]="https://server10.mp3quran.net/tawfeeq/$formatted_sura.mp3"
+    ["عبد الله كامل"]="https://server7.mp3quran.net/kam/$formatted_sura.mp3"
+    ["وديع اليمني"]="https://server8.mp3quran.net/wadee3/$formatted_sura.mp3"
+    ["علي الحذيفي"]="https://server8.mp3quran.net/hudhaify/$formatted_sura.mp3"
+    ["إبراهيم الأخضر"]="https://server10.mp3quran.net/ibrahim_akhdar/$formatted_sura.mp3"
+    ["محمد البراك"]="https://server12.mp3quran.net/brak/$formatted_sura.mp3"
+    ["أكرم العلاقمي"]="https://server11.mp3quran.net/alaqmi/$formatted_sura.mp3"
+    )
+
+    # عرض قائمة المقرئين
+    t recitation_list
+    local index=1
+    declare -a reciter_options
+    for reciter in "${!reciters[@]}"; do
+        echo "$index. $reciter"
+        reciter_options[$index]="$reciter"
+        ((index++))
+    done
+
+    t choose_reciter
+    read reciter_idx
+
+    if [[ ! "$reciter_idx" =~ ^[0-9]+$ ]] || [[ $reciter_idx -lt 1 ]] || [[ $reciter_idx -ge $index ]]; then
+        t invalid
+        return 1
+    fi
+
+    local selected_reciter="${reciter_options[$reciter_idx]}"
+    local selected_url="${reciters[$selected_reciter]}"
+
+    # اختبار الرابط قبل التشغيل
+    if ! curl --output /dev/null --silent --head --fail "$selected_url"; then
+        echo "❌ الرابط غير متاح أو هناك مشكلة في الاتصال بالخادم"
+        echo "يرجى اختيار قارئ آخر أو المحاولة لاحقًا"
+        return 1
+    fi
+
+    local surah_data=$(jq --argjson num "$sura_num" '.data.surahs[] | select(.number == $num)' "$QURAN_FILE" 2>/dev/null)
+    if [[ -z "$surah_data" ]]; then
+        echo "❌ السورة غير موجودة في البيانات المتاحة"
+        return 1
+    fi
+
+    while true; do
+        clear
+        echo "🕌 سورة $(echo "$surah_data" | jq -r '.name')"
+        echo "🎙️ القارئ: $selected_reciter"
+        echo "════════════════════════════════════════"
+        echo "1. $(t listen_only)"
+        echo "2. $(t read_only)"
+        echo "3. $(t read_listen)"
+        echo "0. ↩ $(t back)"
+        echo "════════════════════════════════════════"
+        read -p "$(t choose_option)" play_mode
+
+        case $play_mode in
+            1)
+                echo "▶️ $(t playing)"
+                play_audio "$selected_url"
+                ;;
+            2)
+                read_full_surah "$surah_data"
+                ;;
+            3)
+                play_with_text "$selected_url" "$surah_data"
+                ;;
+            0)
+                return
+                ;;
+            *)
+                t invalid
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+play_audio() {
+    local url="$1"
+    if command -v "$PLAYER" &>/dev/null; then
+        "$PLAYER" "$url" 2>/dev/null
+    else
+        echo "❌ لا يمكن العثور على مشغل الصوت: $PLAYER"
+        echo "يمكنك تغيير المشغل من الإعدادات"
+        return 1
+    fi
+}
+
+play_with_text() {
+    local url="$1"
+    local surah_data="$2"
+
+    # تشغيل الصوت في الخلفية وتخزين PID
+    play_audio "$url" &
+    local player_pid=$!
+
+    # الانتظار لحين تأكدنا من بدء تشغيل الصوت
+    sleep 6
+
+    # عرض البسملة والعنوان
+    echo "════════════════════════════════════════"
+    t bismillah
+    echo "════════════════════════════════════════"
+
+    # عرض الآيات واحدة تلو الأخرى مع تأخير مناسب
+    local verses=$(echo "$surah_data" | jq -r '.ayahs[] | "﴿ \(.text) ﴾ (\(.numberInSurah))"')
+    while IFS= read -r verse; do
+        echo "$verse"
+        echo ""
+
+        local verse_length=$(echo "$verse" | wc -w)
+        local delay=$(calculate_delay "$verse_length")
+        sleep "$delay"
+    done <<< "$verses"
+
+    # بدلًا من قتل الصوت يدويًا، ننتظر حتى ينتهي تلقائيًا
+    wait "$player_pid"
+}
+
+calculate_delay() {
+    local length="$1"
+    echo "scale=2; 1.5 + ($length / 5)" | bc
+}
+
+# ==============================================
+# الأذكار
+# ==============================================
+
+create_sample_azkar() {
+    cat > "$AZKAR_FILE" << 'EOF'
+{
+  "categories": [
+    {
+      "name": "أذكار الصباح",
+      "items": [
+        {
+          "text": "أَعُوذُ بِاللَّهِ مِنَ الشَّيْطَانِ الرَّجِيمِ",
+          "count": 3,
+          "description": "الاستعاذة من الشيطان"
+        },
+        {
+          "text": "بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ",
+          "count": 3,
+          "description": "حفظ من كل ضرر"
+        },
+        {
+          "text": "اللَّهُ لَا إِلَهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ",
+          "count": 1,
+          "description": "آية الكرسي"
+        }
+      ]
+    },
+    {
+      "name": "أذكار المساء",
+      "items": [
+        {
+          "text": "آمَنَ الرَّسُولُ بِمَا أُنْزِلَ إِلَيْهِ مِنْ رَبِّهِ وَالْمُؤْمِنُونَ",
+          "count": 1,
+          "description": "آية الكرسي"
+        },
+        {
+          "text": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+          "count": 3,
+          "description": "سورة الإخلاص"
+        },
+        {
+          "text": "قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ",
+          "count": 3,
+          "description": "سورة الفلق"
+        }
+      ]
+    }
+  ]
+}
+EOF
+}
+
+show_azkar() {
+    if [[ ! -f "$AZKAR_FILE" ]]; then
+        create_sample_azkar
+    fi
+
+    echo "📿 أذكار وأدعية يومية:"
+    echo "════════════════════════════════════════"
+
+    jq -r '.categories[] | "🔸 \(.name)\n\(.items[] | "\(.text)\n\(.description) - \(.count) مرة\n")"' "$AZKAR_FILE" 2>/dev/null
+}
+
+# ==============================================
+# أوقات الصلاة
+# ==============================================
+
+prayer_times() {
+    echo "🕋 $(t loading_prayer_times)"
+
+    local city="$DEFAULT_CITY"
+    local country="$DEFAULT_COUNTRY"
+
+    if [[ -z "$city" || -z "$country" ]]; then
+        echo "📍 $(t location_not_set)"
+        t enter_city
+        read city
+        t enter_country
+        read country
+
+        if [[ -z "$city" || -z "$country" ]]; then
+            echo "❌ $(t enter_city_country)"
+            return 1
+        fi
+
+        DEFAULT_CITY="$city"
+        DEFAULT_COUNTRY="$country"
+        save_config
+    fi
+
+    # دالة لتحويل اسم الطريقة إلى رقم الطريقة المطلوب من API
+    get_method_number() {
+        case "$1" in
+            MWL) echo 3 ;;
+            ISNA) echo 2 ;;
+            Egypt) echo 5 ;;
+            Makkah) echo 4 ;;
+            Karachi) echo 1 ;;
+            Tehran) echo 7 ;;
+            Jafari) echo 8 ;;
+            Morocco) echo 26 ;;
+            Gulf) echo 9 ;;
+            *) echo 2 ;; # القيمة الافتراضية ISNA
+        esac
+    }
+
+    # جلب طريقة الحساب من ملف الإعدادات أو استخدام القيمة الافتراضية
+    local method_name=$(cat ~/.config/islamic-cli/method.conf 2>/dev/null || echo "MWL")
+    local method=$(get_method_number "$method_name")
+
+    if [[ -f "$PRAYER_CACHE" ]]; then
+        local cache_time=$(stat -c %Y "$PRAYER_CACHE" 2>/dev/null || stat -f %m "$PRAYER_CACHE" 2>/dev/null || echo 0)
+        local current_time=$(date +%s)
+        local age=$((current_time - cache_time))
+
+        if [[ $age -lt 21600 ]]; then
+            echo "🕋 $(t prayer_times_from_cache):"
+            echo "════════════════════════════════════════"
+            if cat "$PRAYER_CACHE" 2>/dev/null | jq -r '
+                "📍 $(t location): " + .city + ", " + .country,
+                "📏 $(t method): " + .method,
+                "🌅 $(t fajr): " + .fajr,
+                "🌞 $(t sunrise): " + .sunrise,
+                "☀️ $(t dhuhr): " + .dhuhr,
+                "🌇 $(t asr): " + .asr,
+                "🌆 $(t maghrib): " + .maghrib,
+                "🌙 $(t isha): " + .isha
+            ' 2>/dev/null; then
+                return 0
+            else
+                echo "⚠️ $(t cache_corrupted)"
+                rm -f "$PRAYER_CACHE"
+            fi
+        fi
+    fi
+
+    echo "⏳ $(t fetching_prayer_times)"
+
+    city=$(echo "$city" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    country=$(echo "$country" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    local current_date=$(date +"%d-%m-%Y")
+    local encoded_city=$(echo "$city" | sed 's/ /%20/g')
+    local encoded_country=$(echo "$country" | sed 's/ /%20/g')
+    local api_url="https://api.aladhan.com/v1/timingsByCity/${current_date}?city=${encoded_city}&country=${encoded_country}&method=${method}"
+
+    echo "🌐 $(t connecting_to) $api_url"
+
+    local response=$(curl -s --connect-timeout 15 --max-time 30 "$api_url" 2>/dev/null)
+
+    if [[ -z "$response" ]]; then
+        echo "❌ $(t no_server_response)"
+        echo "💡 $(t check_internet)"
+        return 1
+    fi
+
+    if ! echo "$response" | jq . >/dev/null 2>&1; then
+        echo "❌ $(t invalid_server_response)"
+        return 1
+    fi
+
+    local status_code=$(echo "$response" | jq -r '.code // empty')
+    if [[ "$status_code" != "200" ]]; then
+        echo "❌ $(t server_error) (Code: $status_code)"
+        local error_msg=$(echo "$response" | jq -r '.data // .message // "Unknown error"')
+        echo "$(t message): $error_msg"
+        return 1
+    fi
+
+    local timings=$(echo "$response" | jq -r '.data.timings')
+    if [[ "$timings" == "null" || -z "$timings" ]]; then
+        echo "❌ $(t no_prayer_times)"
+        return 1
+    fi
+
+    local fajr=$(echo "$timings" | jq -r '.Fajr')
+    local sunrise=$(echo "$timings" | jq -r '.Sunrise')
+    local dhuhr=$(echo "$timings" | jq -r '.Dhuhr')
+    local asr=$(echo "$timings" | jq -r '.Asr')
+    local maghrib=$(echo "$timings" | jq -r '.Maghrib')
+    local isha=$(echo "$timings" | jq -r '.Isha')
+
+    jq -n \
+        --arg city "$city" \
+        --arg country "$country" \
+        --arg method "$method_name" \
+        --arg fajr "$fajr" \
+        --arg sunrise "$sunrise" \
+        --arg dhuhr "$dhuhr" \
+        --arg asr "$asr" \
+        --arg maghrib "$maghrib" \
+        --arg isha "$isha" \
+        --arg date "$(date '+%Y-%m-%d %H:%M:%S')" \
+        '{
+            city: $city,
+            country: $country,
+            method: $method,
+            fajr: $fajr,
+            sunrise: $sunrise,
+            dhuhr: $dhuhr,
+            asr: $asr,
+            maghrib: $maghrib,
+            isha: $isha,
+            cached_at: $date
+        }' > "$PRAYER_CACHE"
+
+    echo "✅ $(t prayer_times_fetched)"
+    echo ""
+    echo "🕋 $(t prayer_times):"
+    echo "════════════════════════════════════════"
+    echo "📍 $(t location): $city, $country"
+    echo "📏 $(t method): $method_name"
+    echo "🌅 $(t fajr): $fajr"
+    echo "🌞 $(t sunrise): $sunrise"
+    echo "☀️ $(t dhuhr): $dhuhr"
+    echo "🌇 $(t asr): $asr"
+    echo "🌆 $(t maghrib): $maghrib"
+    echo "🌙 $(t isha): $isha"
+    echo "════════════════════════════════════════"
+}
+
+
+# ==============================================
+# معلومات الموقع
+# ==============================================
+
+get_location_info() {
+    if [[ -f "$LOCATION_CACHE" ]]; then
+        local cache_time=$(stat -c %Y "$LOCATION_CACHE" 2>/dev/null || stat -f %m "$LOCATION_CACHE" 2>/dev/null)
+        local current_time=$(date +%s)
+        local age=$((current_time - cache_time))
+
+        if [[ $age -lt 86400 ]]; then
+            echo "🌍 معلومات الموقع (من الخبيئة):"
+            jq -r '. | "🌎 عنوان IP: \(.query)\n🏙️ المدينة: \(.city)\n🌍 البلد: \(.country)\n⏰ المنطقة الزمنية: \(.timezone)\n📍 الإحداثيات: \(.lat), \(.lon)"' "$LOCATION_CACHE"
+            return 0
+        fi
+    fi
+
+    t loading
+    local location_data=$(curl -s --connect-timeout 10 "http://ip-api.com/json" 2>/dev/null)
+
+    if [[ -n "$location_data" ]] && echo "$location_data" | jq -e . >/dev/null 2>&1; then
+        echo "$location_data" > "$LOCATION_CACHE"
+        echo "🌍 معلومات الموقع:"
+        jq -r '. | "🌎 عنوان IP: \(.query)\n🏙️ المدينة: \(.city)\n🌍 البلد: \(.country)\n⏰ المنطقة الزمنية: \(.timezone)\n📍 الإحداثيات: \(.lat), \(.lon)"' "$LOCATION_CACHE"
+    else
+        echo "❌ فشل في الحصول على معلومات الموقع"
+        return 1
+    fi
+}
+#دالة مساعدة
+get_method_name() {
+    local method_code="$1"
+    case "$method_code" in
+        "MWL") echo "Muslim World League" ;;
+        "Egypt") echo "Egyptian General Authority" ;;
+        "Makkah") echo "Umm Al-Qura, Makkah" ;;
+        "Karachi") echo "University of Islamic Sciences, Karachi" ;;
+        "Tehran") echo "Institute of Geophysics, University of Tehran" ;;
+        "Gulf") echo "Gulf Region" ;;
+        "Kuwait") echo "Kuwait" ;;
+        "Qatar") echo "Qatar" ;;
+        "Singapore") echo "Majlis Ugama Islam Singapura" ;;
+        "Moonsighting") echo "Moonsighting Committee" ;;
+        "ISNA") echo "Islamic Society of North America (ISNA)" ;;
+        "Turkey") echo "Diyanet İşleri Başkanlığı, Turkey" ;;
+        "Algeria") echo "Algerian Ministry of Religious Affairs" ;;
+        "Tunisia") echo "Tunisian Ministry of Religious Affairs" ;;
+        "Morocco") echo "Moroccan Ministry of Religious Affairs" ;;
+        "Libya") echo "Libyan Ministry of Religious Affairs" ;;
+        "UOIF") echo "Union Organization Islamic de France" ;;
+        "FixedIsha90") echo "Fixed Isha (90 min after Maghrib)" ;;
+        "FixedIsha120") echo "Fixed Isha (120 min after Maghrib)" ;;
+        "EgyptSurvey") echo "Egyptian General Authority of Survey" ;;
+        *) echo "$method_code" ;;
+    esac
+}
+# ==============================================
+# التاريخ الهجري
+# ==============================================
+
+hijri_date() {
+    t loading
+    local hijri_data=$(curl -s --connect-timeout 10 "http://api.aladhan.com/v1/gToH/$(date +%d-%m-%Y)" 2>/dev/null)
+
+    if [[ -n "$hijri_data" ]] && echo "$hijri_data" | jq -e . >/dev/null 2>&1; then
+        local hijri_date=$(echo "$hijri_data" | jq -r '.data.hijri')
+        local gregorian_date=$(date +%d-%m-%Y)  # الحصول على التاريخ الميلادي
+
+        if [[ "$hijri_date" != "null" ]]; then
+            echo "🗓️ التاريخ الهجري:"
+            echo "$hijri_date" | jq -r '"📅 \(.date) \(.month.ar) \(.year)هـ\n🌙 \(.weekday.ar)"'
+            echo "✅ موافق ل"
+            echo "📅 التاريخ الميلادي: $gregorian_date"
+        else
+            echo "❌ فشل في الحصول على التاريخ الهجري"
+        fi
+    else
+        echo "❌ فشل في الاتصال بخدمة التاريخ الهجري"
+    fi
+}
+
+
+# ==============================================
+# البحث في القرآن
+# ==============================================
+
+search_quran() {
+    if [[ ! -f "$QURAN_FILE" ]]; then
+        t no_data "$QURAN_FILE"
+        return 1
+    fi
+
+    t search_term
+    read search_term
+
+    if [[ -z "$search_term" ]]; then
+        echo "❌ يرجى إدخال كلمة البحث"
+        return 1
+    fi
+
+    t loading
+
+    local results=$(jq --arg term "$search_term" '
+        [
+            .data.surahs[] as $surah |
+            $surah.ayahs[] as $verse |
+            if ($verse.text | contains($term)) then
+                {
+                    surah_number: $surah.number,
+                    surah_name: $surah.name,
+                    verse_number: $verse.numberInSurah,
+                    text: $verse.text
+                }
+            else empty end
+        ]
+    ' "$QURAN_FILE" 2>/dev/null)
+
+    local count=$(echo "$results" | jq 'length' 2>/dev/null)
+
+    if [[ "$count" == "0" || "$count" == "null" ]]; then
+        t no_results
+        return 1
+    fi
+
+    t results_found "$count"
+    echo "════════════════════════════════════════"
+
+    echo "$results" | jq -r '.[] | "📖 \(.surah_name) - آية \(.verse_number)\n﴿ \(.text) ﴾\n════════════════════════════════════════"'
+}
+
+# ==============================================
+# إحصائيات السور
+# ==============================================
+
+show_statistics() {
+    if [[ ! -f "$QURAN_FILE" ]]; then
+        t no_data "$QURAN_FILE"
+        return 1
+    fi
+
+    t statistics
+    echo "════════════════════════════════════════"
+
+    local total_surahs=$(jq '.data.surahs | length' "$QURAN_FILE" 2>/dev/null)
+    local total_verses=$(jq '[.data.surahs[].ayahs | length] | add' "$QURAN_FILE" 2>/dev/null)
+
+    echo "📊 إحصائيات عامة:"
+    echo "🔢 عدد السور المتاحة: $total_surahs"
+    echo "📝 عدد الآيات المتاحة: $total_verses"
+    echo ""
+
+    echo "📖 تفاصيل السور:"
+    jq -r '.data.surahs[] | "🔸 \(.name) (\(.englishName)) - \(.ayahs | length) آية"' "$QURAN_FILE" 2>/dev/null
+
+    echo ""
+    t press_enter
+    read
+}
+
+# ==============================================
+# إعدادات البرنامج
+# ==============================================
+
+settings_menu() {
+    while true; do
+        clear
+        t settings_menu
+        echo ""
+        t choose_option
+        read choice
+
+        case $choice in
+            1) change_language ;;
+            2) set_location ;;
+            3) choose_calculation_method ;;
+            4) change_player ;;
+            5) clear_cache ;;
+            0) break ;;
+            *) t invalid ;;
+        esac
+    done
+}
+
+change_language() {
+    t select_lang
+    read new_lang
+
+    case $new_lang in
+        "ar"|"en")
+            LANG="$new_lang"
+            echo "LANG=\"$LANG\"" > "$LANG_FILE"
+            t saved
+            ;;
+        *)
+            t invalid
+            ;;
+    esac
+
+    echo ""
+    t press_enter
+    read
+}
+
+set_location() {
+    t enter_city
+    read city
+    t enter_country
+    read country
+
+    if [[ -n "$city" && -n "$country" ]]; then
+        DEFAULT_CITY="$city"
+        DEFAULT_COUNTRY="$country"
+        save_config
+        t saved
+    else
+        echo "❌ يرجى إدخال المدينة والبلد"
+    fi
+
+    echo ""
+    t press_enter
+    read
+}
+
+choose_calculation_method() {
+    while true; do
+        clear
+        echo "📿 $(t choose_method):"
+        echo -e "${GREEN}════════════════════════════════════════${NC}"
+        echo -e "${CYAN}الطرق الدولية:${NC}"
+        echo "1) Muslim World League (MWL)"
+        echo "2) Egyptian General Authority (Egypt)"
+        echo "3) Umm Al-Qura University, Makkah (Makkah)"
+        echo "4) University of Islamic Sciences, Karachi (Karachi)"
+        echo "5) Institute of Geophysics, University of Tehran (Tehran)"
+
+        echo -e "\n${CYAN}طرق الدول العربية:${NC}"
+        echo "6) Gulf Region (Gulf)"
+        echo "7) Kuwait (Kuwait)"
+        echo "8) Qatar (Qatar)"
+        echo "9) Majlis Ugama Islam Singapura (Singapore)"
+        echo "10) Moonsighting Committee Worldwide (Moonsighting)"
+        echo "11) North America (ISNA)"
+        echo "12) Diyanet İşleri Başkanlığı, Turkey (Turkey)"
+
+        echo -e "\n${CYAN}طرق شمال أفريقيا:${NC}"
+        echo "13) Algerian Ministry of Religious Affairs (Algeria)"
+        echo "14) Tunisian Ministry of Religious Affairs (Tunisia)"
+        echo "15) Moroccan Ministry of Religious Affairs (Morocco)"
+        echo "16) Libyan Ministry of Religious Affairs (Libya)"
+
+        echo -e "\n${CYAN}طرق أخرى:${NC}"
+        echo "17) Union Organization Islamic de France (UOIF)"
+        echo "18) Fixed Isha (90 min after Maghrib)"
+        echo "19) Fixed Isha (120 min after Maghrib)"
+        echo "20) Egyptian General Authority of Survey (EgyptSurvey)"
+
+        echo -e "\n0) ↩ $(t back)"
+        echo -e "${GREEN}════════════════════════════════════════${NC}"
+
+        read -p "$(t choose_option)" method_choice
+
+        case $method_choice in
+            1) method="MWL"; break ;;
+            2) method="Egypt"; break ;;
+            3) method="Makkah"; break ;;
+            4) method="Karachi"; break ;;
+            5) method="Tehran"; break ;;
+            6) method="Gulf"; break ;;
+            7) method="Kuwait"; break ;;
+            8) method="Qatar"; break ;;
+            9) method="Singapore"; break ;;
+            10) method="Moonsighting"; break ;;
+            11) method="ISNA"; break ;;
+            12) method="Turkey"; break ;;
+            13) method="Algeria"; break ;;
+            14) method="Tunisia"; break ;;
+            15) method="Morocco"; break ;;
+            16) method="Libya"; break ;;
+            17) method="UOIF"; break ;;
+            18) method="FixedIsha90"; break ;;
+            19) method="FixedIsha120"; break ;;
+            20) method="EgyptSurvey"; break ;;
+            0) return ;;
+            *)
+                echo "❌ $(t invalid)"
+                sleep 1
+                ;;
+        esac
+    done
+
+    # إنشاء مجلد الإعدادات إذا لم يكن موجوداً
+    mkdir -p ~/.config/islamic-cli
+    echo "$method" > ~/.config/islamic-cli/method.conf
+
+    # عرض تأكيد مع اسم الطريقة بالكامل
+    echo "✅ $(t saved): $(get_method_name "$method")"
+
+    echo ""
+    t press_enter
+    read
+}
+
+change_player() {
+    t enter_player
+    read player
+
+    if command -v "$player" &>/dev/null; then
+        PLAYER="$player"
+        save_config
+        t saved
+    else
+        echo "❌ المشغل غير موجود: $player"
+    fi
+
+    echo ""
+    t press_enter
+    read
+}
+
+clear_cache() {
+    rm -f "$PRAYER_CACHE" "$LOCATION_CACHE"
+    t cache_cleared
+
+    echo ""
+    t press_enter
+    read
+}
+
+# ==============================================
+# القائمة الرئيسية
+# ==============================================
+
+show_menu() {
+    clear
+    echo -e "${GREEN}════════════════════════════════════════${NC}"
+    t menu_title
+    echo -e "${GREEN}════════════════════════════════════════${NC}"
+    echo ""
+    t menu_options
+    echo ""
+    echo -e "${GREEN}════════════════════════════════════════${NC}"
+}
+
+main_loop() {
+    while true; do
+        show_menu
+        t choose_option
+        read choice
+
+        case $choice in
+            1) read_quran ;;
+            2) play_recitation ;;
+            3) show_azkar ;;
+            4) prayer_times ;;
+            5) get_location_info ;;
+            6) hijri_date ;;
+            7) search_quran ;;
+            8) show_statistics ;;
+            9) settings_menu ;;
+            0)
+                echo ""
+                t goodbye
+                echo ""
+                exit 0
+                ;;
+            *)
+                t invalid
+                ;;
+        esac
+
+        if [[ $choice != 9 ]]; then
+            echo ""
+            t press_enter
+            read
+        fi
+    done
+}
+
+# ==============================================
+# بداية البرنامج
+# ==============================================
+
+main() {
+    # فحص التبعيات
+    check_dependencies
+
+    # تحميل الإعدادات
+    load_config
+
+    # تحميل بيانات القرآن إذا لم تكن موجودة
+    download_quran_data
+
+    # بدء البرنامج
+    main_loop
+}
+
+# تشغيل البرنامج إذا تم استدعاؤه مباشرة
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
